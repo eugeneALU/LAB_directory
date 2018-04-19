@@ -18,7 +18,7 @@ int main(int argc, char **argv)
 
     /* MPI init */
     int myrank, n_task;
-    pixel dummy;            // just use to create MPI Datatype
+    pixel dummy; // just use to create MPI Datatype
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &myrank); //get own rank number
     MPI_Comm_size(MPI_COMM_WORLD, &n_task); //get total nuber of processor
@@ -79,60 +79,65 @@ int main(int argc, char **argv)
     }
 
     MPI_Bcast(&xsize, 1, MPI_INT, 0, MPI_COMM_WORLD); //brocast -- xsize
-    MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); //brocast -- chunk size 
+    MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); //brocast -- chunk size
 
-    pixel* local_src = (pixel *)malloc(sizeof(pixel)*(chunk+radius*2)*xsize); //storage sending data
+    pixel *local_src = (pixel *)malloc(sizeof(pixel) * (chunk + radius * 2) * xsize); //storage sending data
     int offset_line = 0;
-    int line, start_line, end_line, send_size,i;
+    int line, start_line, end_line, send_size, i;
     MPI_Status status[2];
     MPI_Request request[2];
 
-    if (myrank == 0) {
+    if (myrank == 0)
+    {
         /* sending overlapping src */
         /*
             first {remain} lines go to process 0 so as first {chunk} lines 
             following {chunk} lines go to process 1 and so on till n_task
             each sending accompany with former and successive {radius} lines
         */
-        for (i = 1; i < n_task; i++){
-            line = remain + chunk * i; 
-            end_line = start_line + (chunk-1) + radius;
-            if (end_line > ysize - 1){
+        for (i = 1; i < n_task; i++)
+        {
+            line = remain + chunk * i;
+            end_line = start_line + (chunk - 1) + radius;
+            if (end_line > ysize - 1)
+            {
                 end_line = ysize - 1;
             }
-            start_line = line - radius;   // send with previous {radius} line;
-            if (start_line < 0) {
-                start_line = 0;     // if start_line exceed first line start from line 0
+            start_line = line - radius; // send with previous {radius} line;
+            if (start_line < 0)
+            {
+                start_line = 0; // if start_line exceed first line start from line 0
             }
             //send_size = (end_line - start_line + 1) * xsize;
-            send_size = (chunk+radius*2)*xsize;
+            send_size = (chunk + radius * 2) * xsize;
             offset_line = line - start_line;
             MPI_Isend(&src[start_line * xsize], send_size, MPI_PIXEL, i, 1, MPI_COMM_WORLD, &request[0]);
             MPI_Isend(&offset_line, 1, MPI_INT, i, 2, MPI_COMM_WORLD, &request[1]);
             MPI_Waitall(2, request, status);
         }
     }
-    else {
-        MPI_Irecv(&local_src, (chunk+radius*2)*xsize, MPI_PIXEL, 0, 1, MPI_COMM_WORLD, &request[0]);
+    else
+    {
+        MPI_Irecv(&local_src, (chunk + radius * 2) * xsize, MPI_PIXEL, 0, 1, MPI_COMM_WORLD, &request[0]);
         MPI_Irecv(&offset_line, 1, MPI_INT, 0, 2, MPI_COMM_WORLD, &request[1]);
         MPI_Waitall(2, request, status);
     }
 
     /* apply filter */
-    if (myrank == 0) {
+    if (myrank == 0)
+    {
         blurfilter(xsize, remain + chunk, src, radius, w, 0);
+        local_src = &src[remain * xsize];
+        offset_line = 0;
     }
-    else {
+    else
+    {
         blurfilter(xsize, chunk, local_src, radius, w, offset_line);
     }
 
     /* gathering result */
-    if (myrank == 0) {
-        MPI_Recv();
-    }
-    else {
-        MPI_Send();
-    }
+    MPI_Gather(&local_src[offset_line * xsize], chunk * xsize, MPI_PIXEL, &src[remain * xsize], 
+                chunk * xsize, MPI_PIXEL, 0, MPI_COMM_WORLD);
 
     if (myrank == 0)
     {

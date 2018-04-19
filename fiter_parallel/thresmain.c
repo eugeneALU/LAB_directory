@@ -89,7 +89,6 @@ int main(int argc, char **argv)
     {
         printf("Filtering took: %g secs\n", (etime.tv_sec - stime.tv_sec) +
                                                 1e-9 * (etime.tv_nsec - stime.tv_nsec));
-
         /* write result */
         printf("Writing output file\n");
 

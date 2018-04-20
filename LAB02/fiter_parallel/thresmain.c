@@ -8,6 +8,7 @@
 
 typedef struct
 {
+    int chunk;
     int offset;
     int mean;
     int id;

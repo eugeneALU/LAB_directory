@@ -27,7 +27,7 @@ void blurfilter(const int xsize, const int ysize, pixel *src, const int radius, 
   double r, g, b, n, wc;
   pixel dst[MAX_PIXELS];
 
-  for (y = offset_line; y < offset_line + ysize; y++)
+  for (y = 0; y < ysize + offset_line; y++)
   {
     for (x = 0; x < xsize; x++)
     {
@@ -61,7 +61,7 @@ void blurfilter(const int xsize, const int ysize, pixel *src, const int radius, 
     }
   }
 
-  for (y = offset_line; y < offset_line + ysize; y++)
+  for (y = offset_line; y < ysize + offset_line; y++)
   {
     for (x = 0; x < xsize; x++)
     {

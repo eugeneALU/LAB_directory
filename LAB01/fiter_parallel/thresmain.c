@@ -45,10 +45,11 @@ int main(int argc, char **argv)
         }
 
         printf("Has read the image, calling filter\n");
+
+        clock_gettime(CLOCK_REALTIME, &stime);
     }
 
     /* parallel take place */
-    clock_gettime(CLOCK_REALTIME, &stime);
 
     int mean = 0;
     int total_size = 0;
@@ -83,12 +84,14 @@ int main(int argc, char **argv)
 
     MPI_Gather(local_src, chunk, MPI_PIXEL, &src[remain], chunk, MPI_PIXEL, 0, MPI_COMM_WORLD);
 
-    clock_gettime(CLOCK_REALTIME, &etime);
-
     if (myrank == 0)
     {
+
+        clock_gettime(CLOCK_REALTIME, &etime);
+
         printf("Filtering took: %g secs\n", (etime.tv_sec - stime.tv_sec) +
                                                 1e-9 * (etime.tv_nsec - stime.tv_nsec));
+
         /* write result */
         printf("Writing output file\n");
 

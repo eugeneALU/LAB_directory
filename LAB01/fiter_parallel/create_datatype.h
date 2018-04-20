@@ -3,6 +3,6 @@
 
 #include <mpi.h>
 #include "blurfilter.h"
-void create_datatype_pixel(struct pixel* src ,MPI_Datatype* MPI_PIXEL);
+void create_datatype_pixel(pixel* src ,MPI_Datatype* MPI_PIXEL);
 
 # endif

@@ -5,6 +5,7 @@
 #include "ppmio.h"
 #include "blurfilter.h"
 #include "gaussw.h"
+#include <mpi.h>
 
 int main(int argc, char **argv)
 {
@@ -37,12 +38,6 @@ int main(int argc, char **argv)
             exit(1);
         }
 
-        if ((radius > MAX_RAD) || (radius < 1))
-        {
-            fprintf(stderr, "Radius (%d) must be greater than zero and less then %d\n", radius, MAX_RAD);
-            exit(1);
-        }
-
         /* read file */
         if (read_ppm(argv[2], &xsize, &ysize, &colmax, (char *)src) != 0)
             exit(1);
@@ -60,22 +55,23 @@ int main(int argc, char **argv)
     }
 
     radius = atoi(argv[1]); //read in radius
+    if ((radius > MAX_RAD) || (radius < 1))
+    {
+        fprintf(stderr, "Radius (%d) must be greater than zero and less then %d\n", radius, MAX_RAD);
+        exit(1);
+    }
+
     /* filter */
     get_gauss_weights(radius, w);
 
     /* parallel take place */
-
     int chunk = 0;
     int remain = 0;
-    int sendsize = 0;
-    int offset = 0;
 
     if (myrank == 0)
     {
         chunk = ysize / n_task;
         remain = ysize % n_task;
-        sendsize = xsize * chunk;
-        offset = xsize * remain;
     }
 
     MPI_Bcast(&xsize, 1, MPI_INT, 0, MPI_COMM_WORLD); //brocast -- xsize
@@ -109,7 +105,7 @@ int main(int argc, char **argv)
                 start_line = 0; // if start_line exceed first line start from line 0
             }
             //send_size = (end_line - start_line + 1) * xsize;
-            send_size = (chunk + radius * 2) * xsize;
+            send_size = (chunk + radius * 2) * xsize; // just send a little bigger than needed. It will be much easier...
             offset_line = line - start_line;
             MPI_Isend(&src[start_line * xsize], send_size, MPI_PIXEL, i, 1, MPI_COMM_WORLD, &request[0]);
             MPI_Isend(&offset_line, 1, MPI_INT, i, 2, MPI_COMM_WORLD, &request[1]);
@@ -118,7 +114,7 @@ int main(int argc, char **argv)
     }
     else
     {
-        MPI_Irecv(&local_src, (chunk + radius * 2) * xsize, MPI_PIXEL, 0, 1, MPI_COMM_WORLD, &request[0]);
+        MPI_Irecv(local_src, (chunk + radius * 2) * xsize, MPI_PIXEL, 0, 1, MPI_COMM_WORLD, &request[0]);
         MPI_Irecv(&offset_line, 1, MPI_INT, 0, 2, MPI_COMM_WORLD, &request[1]);
         MPI_Waitall(2, request, status);
     }
@@ -127,8 +123,9 @@ int main(int argc, char **argv)
     if (myrank == 0)
     {
         blurfilter(xsize, remain + chunk, src, radius, w, 0);
-        local_src = &src[remain * xsize];
-        offset_line = 0;
+        /* maybe we can have a copy to local_src here and then we can use Gather later */
+        //local_src = &src[remain * xsize];
+        //offset_line = 0;
     }
     else
     {
@@ -136,8 +133,24 @@ int main(int argc, char **argv)
     }
 
     /* gathering result */
-    MPI_Gather(&local_src[offset_line * xsize], chunk * xsize, MPI_PIXEL, &src[remain * xsize], 
-                chunk * xsize, MPI_PIXEL, 0, MPI_COMM_WORLD);
+    if (myrank != 0)
+    {
+        MPI_Send(&local_src[offset_line * xsize], chunk * xsize, MPI_PIXEL, 0, 3, MPI_COMM_WORLD);
+    }
+    else
+    {
+        /* using unsynchronous won't better than just using synchrnous*/
+        //MPI_Status *status_0 = (MPI_Status*)malloc(sizeof(MPI_Status)*(n_task-1));
+        //MPI_Request *request_0 = (MPI_Request*)malloc(sizeof(MPI_Request)* (n_task-1));
+        for (i = 1; i < n_task; i++)
+        {
+            MPI_Status status;
+            line = remain + chunk * i;
+            MPI_Recv(&src[line * xsize], chunk * xsize, MPI_PIXEL, i, 3, MPI_COMM_WORLD, &status);
+            //MPI_Irecv(&src[line*xsize], chunk * xsize, MPI_PIXEL, i, 3, MPI_COMM_WORLD, &request_0[i-1]);
+        }
+        //MPI_Waitall(n_task-1, request_0, status_0);
+    }
 
     if (myrank == 0)
     {

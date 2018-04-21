@@ -9,20 +9,32 @@
 typedef struct
 {
     int chunk;
-    int offset;
     int mean;
-    int id;
+    int remain;
+    pixel *src; 
 } data;
 
-void *apply_filter(data *send_data)
-{
-    data *mydata = send_data;
-    int chunk = mydata->chunk
-    int offset = mydata->offset;
-    int mean = mydata->mean;
-    int id = mydata->id;
+int count = 0;
 
-    thresfilter(chunk, &src[offset], mean);
+/* introduce lock */
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+void *apply_filter(void *send_data)
+{
+    data *mydata = (data *)send_data;
+
+    int chunk = mydata->chunk;
+    int mean = mydata->mean;
+    int remain = mydata->remain;
+    pixel *src = mydata->src;
+
+    pthread_mutex_lock(&lock);
+    count++;
+    int tmp = count;
+    pthread_mutex_unlock(&lock);
+    
+    thresfilter(chunk, &src[remain + chunk * tmp], mean);
+    pthread_exit(NULL);
 }
 
 int main(int argc, char **argv)
@@ -75,22 +87,26 @@ int main(int argc, char **argv)
     int total_size = 0;
     int chunk = 0;
     int remain = 0;
+    int i;
     data send_data;
 
     total_size = xsize * ysize;
-    chunk = total_size / n_task;
-    remain = total_size % n_task;
+    chunk = total_size / n_thread;
+    remain = total_size % n_thread;
     mean = get_global_mean(xsize, ysize, src);
 
-    sned_data.chunk = chunk;
+    send_data.chunk = chunk;
     send_data.mean = mean;
+    send_data.src = src;
+    send_data.remain = remain;
 
     /* create thread */
-    for (int i = 0; i < n_thread; i++)
+    for (i = 1; i < n_thread; i++)
     {
-        send_data.offset = remain + chunk * (i + 1);
-        send_data.id = i + 1;
-        if (pthread_create(&thread[i], NULL, apply_filter, (data *)&send_data))
+	/* how to send data in for loop -- since here offset will be modify when I pass to the thread and cause wrong answer */
+        //send_data.offset = malloc(sizeof(int));
+	//*send_data.offset = remain + chunk * i;
+        if (pthread_create(&thread[i], NULL, apply_filter, (void *)&send_data)!=0)
         {
             printf("Error happen while creating thread(%d)\n", i + 1);
         }
@@ -101,9 +117,9 @@ int main(int argc, char **argv)
     thresfilter(chunk, &src[remain], mean);
 
     /* wait until thread finish */
-    for (int i = 0; i < n_thread; i++)
+    for (i = 1; i < n_thread; i++)
     {
-        pthread_join(&thread[i], NULL);
+        pthread_join(thread[i], NULL);
     }
 
     clock_gettime(CLOCK_REALTIME, &etime);
@@ -116,6 +132,11 @@ int main(int argc, char **argv)
 
     if (write_ppm(argv[2], xsize, ysize, (char *)src) != 0)
         exit(1);
+    
+    /* free memory */
+    pthread_mutex_destroy(&lock);
+    free(src);
+    free(thread);
 
     return (0);
 }

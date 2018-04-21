@@ -5,7 +5,46 @@
 #include "ppmio.h"
 #include "blurfilter.h"
 #include "gaussw.h"
-#include <mpi.h>
+#include <pthread.h>
+
+typedef struct
+{
+    int xsize;
+    int chunk;
+    int radius;
+    int *offset_line;
+    int *total_line;
+    double *weight;
+    pixel *copy;
+    pixel *src;
+
+} data;
+
+int count = 0;
+
+/* introduce lock */
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+
+void *apply_filter(void *send_data)
+{
+    data *mydata = (data *) send_data;
+
+    int xsize = mydata->xsize;
+    int chunk = mydata->chunk;
+    int radius = mydata->radius;
+    double *w = mydata->weigth;
+    pixel *copy = mydata->copy;
+    pixel *src = mydata->src;
+
+    pthread_mutex_lock(&lock);
+    count++;
+    int tmp = count;
+    pthread_mutex_unlock(&lock);
+
+    blurfilter(xsize, chunk, copy, src, radius, w, offset_line[tmp], total_line[tmp]);
+
+    pthread_exit(NULL);
+}
 
 int main(int argc, char **argv)
 {
@@ -17,41 +56,45 @@ int main(int argc, char **argv)
 
     double w[MAX_RAD];
 
-    /* MPI init */
-    int myrank, n_task;
-    pixel dummy; // just use to create MPI Datatype
-    MPI_Init(&argc, &argv);
-    MPI_Comm_rank(MPI_COMM_WORLD, &myrank); //get own rank number
-    MPI_Comm_size(MPI_COMM_WORLD, &n_task); //get total nuber of processor
+    /* pthread init */
+    int n_thread;
+    pthread_t *thread;
 
-    /* MPI data type create -- MPI_PIXEL */
-    MPI_Datatype MPI_PIXEL;
-    create_datatype_pixel(&dummy, &MPI_PIXEL);
-
-    /* only rank0 process read the file */
-    if (myrank == 0)
+    /* Take care of the arguments */
+    if (argc != 5)
     {
-        /* Take care of the arguments */
-        if (argc != 4)
-        {
-            fprintf(stderr, "Usage: %s radius infile outfile\n", argv[0]);
-            exit(1);
-        }
+        fprintf(stderr, "Usage: %s radius infile outfile thread_number\n", argv[0]);
+        exit(1);
+    }
 
-        /* read file */
-        if (read_ppm(argv[2], &xsize, &ysize, &colmax, (char *)src) != 0)
-            exit(1);
+    /* read file */
+    if (read_ppm(argv[2], &xsize, &ysize, &colmax, (char *)src) != 0)
+        exit(1);
 
-        if (colmax > 255)
-        {
-            fprintf(stderr, "Too large maximum color-component value\n");
-            exit(1);
-        }
-        printf("Has read the image, generating coefficients\n");
+    if (colmax > 255)
+    {
+        fprintf(stderr, "Too large maximum color-component value\n");
+        exit(1);
+    }
+    printf("Has read the image, generating coefficients\n");
 
-        printf("Calling filter\n");
+    printf("Calling filter\n");
 
-        clock_gettime(CLOCK_REALTIME, &stime);
+    clock_gettime(CLOCK_REALTIME, &stime);
+
+    /* read in thread number */
+    n_thread = atoi(argv[4]);
+    if (n_thread > 16 || n_thread < 1)
+    {
+        printf("Thread number is too big (0 < n_thread <= 16)\n");
+        exit(-1);
+    }
+    /* create container for thread */
+    thread = (pthread_t *)malloc(sizeof(pthread_t) * n_thread);
+    if (thread == NULL)
+    {
+        printf("Out of memory!!!\n");
+        exit(-1);
     }
 
     radius = atoi(argv[1]); //read in radius
@@ -61,110 +104,75 @@ int main(int argc, char **argv)
         exit(1);
     }
 
-    /* filter */
+    /* get filter weight */
     get_gauss_weights(radius, w);
 
     /* parallel take place */
+    data send_data;
     int chunk = 0;
     int remain = 0;
-
-    if (myrank == 0)
-    {
-        chunk = ysize / n_task;
-        remain = ysize % n_task;
-    }
-
-    MPI_Bcast(&xsize, 1, MPI_INT, 0, MPI_COMM_WORLD); //brocast -- xsize
-    MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); //brocast -- chunk size
-
-    pixel *local_src = (pixel *)malloc(sizeof(pixel) * (chunk + radius * 2) * xsize); //storage sending data
-    int offset_line = 0;
     int line, start_line, end_line, send_size, i;
-    MPI_Status status[2];
-    MPI_Request request[2];
+    int *offset_line = (int *)malloc(sizeof(int)*n_task);
+    int *total_line = (int *)malloc(sizeof(int)*n_task);
+    pixel *copy = (pixel *)malloc(sizeof(pixel) * ysize * xsize); //copy one src
+    for (i = 0; i < ysize*xsizel; i++){
+        copy[i] = src[i];
+    }
 
-    if (myrank == 0)
+    chunk = ysize / n_task;
+    remain = ysize % n_task;
+
+    send_data.xsize = xsize;
+    send_data.chunk = chunk;
+    send_data.radius = radius;
+    send_data.copy = copy;
+    send_data.total_line = total_line;
+    send_data.offset_line = offset_line;
+    send_data.src = src;
+    send_data.copy = copy;
+
+    /* create thread */
+    for (i = 1; i < n_thread; i++)
     {
-        /* sending overlapping src */
-        /*
-            first {remain} lines go to process 0 so as first {chunk} lines 
-            following {chunk} lines go to process 1 and so on till n_task
-            each sending accompany with former and successive {radius} lines
-        */
-        for (i = 1; i < n_task; i++)
+        line = remain + chunk * i;
+        start_line = line - radius; // send with previous {radius} line;
+        if (start_line < 0)
         {
-            line = remain + chunk * i;
-            end_line = start_line + (chunk - 1) + radius;
-            if (end_line > ysize - 1)
-            {
-                end_line = ysize - 1;
-            }
-            start_line = line - radius; // send with previous {radius} line;
-            if (start_line < 0)
-            {
-                start_line = 0; // if start_line exceed first line start from line 0
-            }
-            //send_size = (end_line - start_line + 1) * xsize;
-            send_size = (chunk + radius * 2) * xsize; // just send a little bigger than needed. It will be much easier...
-            offset_line = line - start_line;
-            MPI_Isend(&src[start_line * xsize], send_size, MPI_PIXEL, i, 1, MPI_COMM_WORLD, &request[0]);
-            MPI_Isend(&offset_line, 1, MPI_INT, i, 2, MPI_COMM_WORLD, &request[1]);
-            MPI_Waitall(2, request, status);
+            start_line = 0; // if start_line exceed first line start from line 0
+        }
+        end_line = start_line + (chunk - 1) + radius;
+        if (end_line > ysize - 1)
+        {
+            end_line = ysize - 1;
+        }
+        
+        total_line[i] = end_line - start_line + 1;
+        offset_line[i] = line;
+        if (pthread_create(&thread[i], NULL, apply_filter, (void *)&send_data)!=0)
+        {
+            printf("Error happen while creating thread(%d)\n", i + 1);
         }
     }
-    else
+
+    /* apply filter (main thread)*/
+    blurfilter(xsize, remain + chunk, copy, src, radius, w, 0, remain+chunk+radius);
+
+    /* wait until thread finish */
+    for (i = 1; i < n_thread; i++)
     {
-        MPI_Irecv(local_src, (chunk + radius * 2) * xsize, MPI_PIXEL, 0, 1, MPI_COMM_WORLD, &request[0]);
-        MPI_Irecv(&offset_line, 1, MPI_INT, 0, 2, MPI_COMM_WORLD, &request[1]);
-        MPI_Waitall(2, request, status);
+        pthread_join(thread[i], NULL);
     }
 
-    /* apply filter */
-    if (myrank == 0)
-    {
-        blurfilter(xsize, remain + chunk, src, radius, w, 0);
-        /* maybe we can have a copy to local_src here and then we can use Gather later */
-        //local_src = &src[remain * xsize];
-        //offset_line = 0;
-    }
-    else
-    {
-        blurfilter(xsize, chunk, local_src, radius, w, offset_line);
-    }
+    clock_gettime(CLOCK_REALTIME, &etime);
 
-    /* gathering result */
-    if (myrank != 0)
-    {
-        MPI_Send(&local_src[offset_line * xsize], chunk * xsize, MPI_PIXEL, 0, 3, MPI_COMM_WORLD);
-    }
-    else
-    {
-        /* using unsynchronous won't better than just using synchrnous*/
-        //MPI_Status *status_0 = (MPI_Status*)malloc(sizeof(MPI_Status)*(n_task-1));
-        //MPI_Request *request_0 = (MPI_Request*)malloc(sizeof(MPI_Request)* (n_task-1));
-        for (i = 1; i < n_task; i++)
-        {
-            MPI_Status status;
-            line = remain + chunk * i;
-            MPI_Recv(&src[line * xsize], chunk * xsize, MPI_PIXEL, i, 3, MPI_COMM_WORLD, &status);
-            //MPI_Irecv(&src[line*xsize], chunk * xsize, MPI_PIXEL, i, 3, MPI_COMM_WORLD, &request_0[i-1]);
-        }
-        //MPI_Waitall(n_task-1, request_0, status_0);
-    }
+    printf("Filtering took: %g secs\n", (etime.tv_sec - stime.tv_sec) +
+                                            1e-9 * (etime.tv_nsec - stime.tv_nsec));
 
-    if (myrank == 0)
-    {
-        clock_gettime(CLOCK_REALTIME, &etime);
+    /* write result */
+    printf("Writing output file\n");
 
-        printf("Filtering took: %g secs\n", (etime.tv_sec - stime.tv_sec) +
-                                                1e-9 * (etime.tv_nsec - stime.tv_nsec));
-
-        /* write result */
-        printf("Writing output file\n");
-
-        if (write_ppm(argv[3], xsize, ysize, (char *)src) != 0)
-            exit(1);
-    }
+    if (write_ppm(argv[3], xsize, ysize, (char *)src) != 0)
+        exit(1);
 
     /* MPI finalize */
     MPI_Finalize();

@@ -21,13 +21,14 @@ pixel *pix(pixel *image, const int xx, const int yy, const int xsize)
   return (image + off);
 }
 
-void blurfilter(const int xsize, const int ysize, pixel *src, const int radius, const double *w, const int offset_line)
+void blurfilter(const int xsize, const int ysize, pixel *src, const int radius, const double *w, 
+                const int offset_line, const int total_line)
 {
   int x, y, x2, y2, wi;
   double r, g, b, n, wc;
   pixel dst[MAX_PIXELS];
 
-  for (y = 0; y < ysize + offset_line; y++)
+  for (y = offset_line; y <  ysize + offset_line; y++)
   {
     for (x = 0; x < xsize; x++)
     {
@@ -38,20 +39,20 @@ void blurfilter(const int xsize, const int ysize, pixel *src, const int radius, 
       for (wi = 1; wi <= radius; wi++)
       {
         wc = w[wi];
-        x2 = x - wi;
-        if (x2 >= 0)
+        y2 = y - wi;
+        if (y2 >= 0)
         {
-          r += wc * pix(src, x2, y, xsize)->r;
-          g += wc * pix(src, x2, y, xsize)->g;
-          b += wc * pix(src, x2, y, xsize)->b;
+          r += wc * pix(src, x, y2, xsize)->r;
+          g += wc * pix(src, x, y2, xsize)->g;
+          b += wc * pix(src, x, y2, xsize)->b;
           n += wc;
         }
-        x2 = x + wi;
-        if (x2 < xsize)
+        y2 = y + wi;
+        if (y2 < total_line)
         {
-          r += wc * pix(src, x2, y, xsize)->r;
-          g += wc * pix(src, x2, y, xsize)->g;
-          b += wc * pix(src, x2, y, xsize)->b;
+          r += wc * pix(src, x, y2, xsize)->r;
+          g += wc * pix(src, x, y2, xsize)->g;
+          b += wc * pix(src, x, y2, xsize)->b;
           n += wc;
         }
       }
@@ -61,7 +62,7 @@ void blurfilter(const int xsize, const int ysize, pixel *src, const int radius, 
     }
   }
 
-  for (y = offset_line; y < ysize + offset_line; y++)
+  for (y = offset_line; y <  ysize + offset_line; y++)
   {
     for (x = 0; x < xsize; x++)
     {
@@ -72,20 +73,20 @@ void blurfilter(const int xsize, const int ysize, pixel *src, const int radius, 
       for (wi = 1; wi <= radius; wi++)
       {
         wc = w[wi];
-        y2 = y - wi;
-        if (y2 >= 0)
+        x2 = x - wi;
+        if (x2 >= 0)
         {
-          r += wc * pix(dst, x, y2, xsize)->r;
-          g += wc * pix(dst, x, y2, xsize)->g;
-          b += wc * pix(dst, x, y2, xsize)->b;
+          r += wc * pix(dst, x2, y, xsize)->r;
+          g += wc * pix(dst, x2, y, xsize)->g;
+          b += wc * pix(dst, x2, y, xsize)->b;
           n += wc;
         }
-        y2 = y + wi;
-        if (y2 < ysize)
+        x2 = x + wi;
+        if (x2 < xsize)
         {
-          r += wc * pix(dst, x, y2, xsize)->r;
-          g += wc * pix(dst, x, y2, xsize)->g;
-          b += wc * pix(dst, x, y2, xsize)->b;
+          r += wc * pix(dst, x2, y, xsize)->r;
+          g += wc * pix(dst, x2, y, xsize)->g;
+          b += wc * pix(dst, x2, y, xsize)->b;
           n += wc;
         }
       }

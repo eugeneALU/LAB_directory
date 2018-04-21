@@ -65,6 +65,7 @@ int main(int argc, char **argv)
     get_gauss_weights(radius, w);
 
     /* parallel take place */
+
     int chunk = 0;
     int remain = 0;
 
@@ -78,7 +79,8 @@ int main(int argc, char **argv)
     MPI_Bcast(&chunk, 1, MPI_INT, 0, MPI_COMM_WORLD); //brocast -- chunk size
 
     pixel *local_src = (pixel *)malloc(sizeof(pixel) * (chunk + radius * 2) * xsize); //storage sending data
-    int offset_line = 0;
+    int offset_line = 0; 
+    int send_line = 0;
     int line, start_line, end_line, send_size, i;
     MPI_Status status[2];
     MPI_Request request[2];
@@ -94,27 +96,32 @@ int main(int argc, char **argv)
         for (i = 1; i < n_task; i++)
         {
             line = remain + chunk * i;
-            end_line = start_line + (chunk - 1) + radius;
-            if (end_line > ysize - 1)
-            {
-                end_line = ysize - 1;
-            }
             start_line = line - radius; // send with previous {radius} line;
             if (start_line < 0)
             {
                 start_line = 0; // if start_line exceed first line start from line 0
             }
-            //send_size = (end_line - start_line + 1) * xsize;
-            send_size = (chunk + radius * 2) * xsize; // just send a little bigger than needed. It will be much easier...
+            end_line = start_line + (chunk - 1) + radius;
+            if (end_line > ysize - 1)
+            {
+                end_line = ysize - 1;
+            }
+	        send_line = end_line - start_line + 1;
+	        MPI_Send(&send_line, 1, MPI_INT, i, 3, MPI_COMM_WORLD);
+
+            //send_size = send_line * xsize;
+            //send_size = (chunk + radius * 2) * xsize;
             offset_line = line - start_line;
-            MPI_Isend(&src[start_line * xsize], send_size, MPI_PIXEL, i, 1, MPI_COMM_WORLD, &request[0]);
+            MPI_Isend(&src[start_line * xsize], send_line * xsize, MPI_PIXEL, i, 1, MPI_COMM_WORLD, &request[0]);
             MPI_Isend(&offset_line, 1, MPI_INT, i, 2, MPI_COMM_WORLD, &request[1]);
             MPI_Waitall(2, request, status);
         }
     }
     else
     {
-        MPI_Irecv(local_src, (chunk + radius * 2) * xsize, MPI_PIXEL, 0, 1, MPI_COMM_WORLD, &request[0]);
+	MPI_Status status_size;
+	MPI_Recv(&send_line, 1, MPI_INT, 0, 3, MPI_COMM_WORLD, &status_size);   
+	MPI_Irecv(local_src, send_line * xsize, MPI_PIXEL, 0, 1, MPI_COMM_WORLD, &request[0]);
         MPI_Irecv(&offset_line, 1, MPI_INT, 0, 2, MPI_COMM_WORLD, &request[1]);
         MPI_Waitall(2, request, status);
     }
@@ -122,35 +129,34 @@ int main(int argc, char **argv)
     /* apply filter */
     if (myrank == 0)
     {
-        blurfilter(xsize, remain + chunk, src, radius, w, 0);
-        /* maybe we can have a copy to local_src here and then we can use Gather later */
+        blurfilter(xsize, remain + chunk, src, radius, w, 0, remain+chunk+radius);
         //local_src = &src[remain * xsize];
         //offset_line = 0;
     }
     else
     {
-        blurfilter(xsize, chunk, local_src, radius, w, offset_line);
+        blurfilter(xsize, chunk, local_src, radius, w, offset_line, send_line);
     }
 
     /* gathering result */
-    if (myrank != 0)
+    if (myrank != 0) 
     {
         MPI_Send(&local_src[offset_line * xsize], chunk * xsize, MPI_PIXEL, 0, 3, MPI_COMM_WORLD);
+	//printf("current thread(%d) finish send\n", myrank);
     }
-    else
-    {
-        /* using unsynchronous won't better than just using synchrnous*/
-        //MPI_Status *status_0 = (MPI_Status*)malloc(sizeof(MPI_Status)*(n_task-1));
-        //MPI_Request *request_0 = (MPI_Request*)malloc(sizeof(MPI_Request)* (n_task-1));
-        for (i = 1; i < n_task; i++)
-        {
-            MPI_Status status;
-            line = remain + chunk * i;
-            MPI_Recv(&src[line * xsize], chunk * xsize, MPI_PIXEL, i, 3, MPI_COMM_WORLD, &status);
-            //MPI_Irecv(&src[line*xsize], chunk * xsize, MPI_PIXEL, i, 3, MPI_COMM_WORLD, &request_0[i-1]);
-        }
-        //MPI_Waitall(n_task-1, request_0, status_0);
-    }
+    else {
+    	//MPI_Status *status_0 = (MPI_Status*)malloc(sizeof(MPI_Status)*(n_task-1));
+    	//MPI_Request *request_0 = (MPI_Request*)malloc(sizeof(MPI_Request)* (n_task-1));
+        for(i = 1; i < n_task; i++) {
+	    MPI_Status status;
+ 	    line = remain + chunk * i;
+	    MPI_Recv(&src[line*xsize], chunk * xsize, MPI_PIXEL, i, 3, MPI_COMM_WORLD, &status);
+	    //MPI_Irecv(&src[line*xsize], chunk * xsize, MPI_PIXEL, i, 3, MPI_COMM_WORLD, &request_0[i-1]);
+	    //printf("finish receive from thread(%d)\n", myrank);	
+	}
+	//MPI_Waitall(n_task-1, request_0, status_0);
+        
+    }	
 
     if (myrank == 0)
     {

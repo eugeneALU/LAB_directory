@@ -22,16 +22,16 @@ pixel *pix(pixel *image, const int xx, const int yy, const int xsize)
 }
 
 void blurfilter(const int xsize, const int ysize, pixel *copy, pixel *src, const int radius, 
-                const double *w, const int offset_line, const int total_line)
+                const double *w, const int offset_line, const int y_max)
 {
   int x, y, x2, y2, wi;
   double r, g, b, n, wc;
-  pixel dst[MAX_PIXELS];
+  static pixel dst[MAX_PIXELS];
 
   for (y = offset_line; y <  ysize + offset_line; y++)
-  {
+  { 
     for (x = 0; x < xsize; x++)
-    {
+    { 
       r = w[0] * pix(copy, x, y, xsize)->r;
       g = w[0] * pix(copy, x, y, xsize)->g;
       b = w[0] * pix(copy, x, y, xsize)->b;
@@ -48,7 +48,7 @@ void blurfilter(const int xsize, const int ysize, pixel *copy, pixel *src, const
           n += wc;
         }
         y2 = y + wi;
-        if (y2 < total_line)
+        if (y2 < y_max)
         {
           r += wc * pix(copy, x, y2, xsize)->r;
           g += wc * pix(copy, x, y2, xsize)->g;
@@ -61,7 +61,6 @@ void blurfilter(const int xsize, const int ysize, pixel *copy, pixel *src, const
       pix(dst, x, y, xsize)->b = b / n;
     }
   }
-
   for (y = offset_line; y <  ysize + offset_line; y++)
   {
     for (x = 0; x < xsize; x++)

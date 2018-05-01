@@ -24,8 +24,11 @@ pixel* pix(pixel* image, const int xx, const int yy, const int xsize)
 void blurfilter(const int xsize, const int ysize, pixel* src, const int radius, const double *w){
   int x,y,x2,y2, wi;
   double r,g,b,n, wc;
-  pixel dst[MAX_PIXELS];
-
+  static pixel dst[MAX_PIXELS]; 
+  /* too huge MAX_PIXELS will cause stackover flow */
+  /* fixed : 1. static 				--> move to BSS                           */
+  /*         2. malloc(sizeof(pixel)*MAX_PIXELS --> move to heap                          */
+  /*         3. ulimit -s unlimited             --> type in cmd, enlarge stack we can use */
 
   for (y=0; y<ysize; y++) {
     for (x=0; x<xsize; x++) {
@@ -84,7 +87,6 @@ void blurfilter(const int xsize, const int ysize, pixel* src, const int radius, 
       pix(src,x,y, xsize)->b = b/n;
     }
   }
-
 }
 
 

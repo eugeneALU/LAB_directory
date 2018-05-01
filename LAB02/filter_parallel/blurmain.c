@@ -7,17 +7,18 @@
 #include "gaussw.h"
 #include <pthread.h>
 
+#define MAX_RAD 1000
+
 typedef struct
 {
     int xsize;
     int chunk;
     int radius;
+    int y_max;
     int *offset_line;
-    int *total_line;
-    double *weight;
+    double *w;
     pixel *copy;
     pixel *src;
-
 } data;
 
 int count = 0;
@@ -27,12 +28,14 @@ pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
 
 void *apply_filter(void *send_data)
 {
-    data *mydata = (data *) send_data;
+    data *mydata = (data *)send_data;
 
     int xsize = mydata->xsize;
     int chunk = mydata->chunk;
     int radius = mydata->radius;
-    double *w = mydata->weigth;
+    int y_max = mydata->y_max;
+    int *offset_line = mydata->offset_line;
+    double *w = mydata->w;
     pixel *copy = mydata->copy;
     pixel *src = mydata->src;
 
@@ -41,7 +44,7 @@ void *apply_filter(void *send_data)
     int tmp = count;
     pthread_mutex_unlock(&lock);
 
-    blurfilter(xsize, chunk, copy, src, radius, w, offset_line[tmp], total_line[tmp]);
+    blurfilter(xsize, chunk, copy, src, radius, w, offset_line[tmp], y_max);
 
     pthread_exit(NULL);
 }
@@ -52,9 +55,9 @@ int main(int argc, char **argv)
     int xsize, ysize, colmax;
     pixel *src = (pixel *)malloc(sizeof(pixel) * MAX_PIXELS);
     struct timespec stime, etime;
-#define MAX_RAD 1000
 
     double w[MAX_RAD];
+    //double *w = (double *)malloc(sizeof(double) * MAX_RAD);
 
     /* pthread init */
     int n_thread;
@@ -84,9 +87,9 @@ int main(int argc, char **argv)
 
     /* read in thread number */
     n_thread = atoi(argv[4]);
-    if (n_thread > 16 || n_thread < 1)
+    if (n_thread > 32 || n_thread < 1)
     {
-        printf("Thread number is too big (0 < n_thread <= 16)\n");
+        printf("Thread number is not proper(0 < n_thread <= 32)\n");
         exit(-1);
     }
     /* create container for thread */
@@ -106,30 +109,35 @@ int main(int argc, char **argv)
 
     /* get filter weight */
     get_gauss_weights(radius, w);
+    printf("get weight\n");
 
     /* parallel take place */
     data send_data;
     int chunk = 0;
     int remain = 0;
     int line, start_line, end_line, send_size, i;
-    int *offset_line = (int *)malloc(sizeof(int)*n_task);
-    int *total_line = (int *)malloc(sizeof(int)*n_task);
+    int *offset_line = (int *)malloc(sizeof(int) * n_thread);
     pixel *copy = (pixel *)malloc(sizeof(pixel) * ysize * xsize); //copy one src
-    for (i = 0; i < ysize*xsizel; i++){
+    for (i = 0; i < ysize * xsize; i++)
+    {
         copy[i] = src[i];
     }
 
-    chunk = ysize / n_task;
-    remain = ysize % n_task;
+    chunk = ysize / n_thread;
+    remain = ysize % n_thread;
+    printf("chunk(%d) remain(%d)\n", chunk, remain);
 
     send_data.xsize = xsize;
     send_data.chunk = chunk;
     send_data.radius = radius;
     send_data.copy = copy;
-    send_data.total_line = total_line;
+    send_data.y_max = ysize;
     send_data.offset_line = offset_line;
     send_data.src = src;
     send_data.copy = copy;
+    send_data.w = w;
+
+    printf("data preparing finished\n");
 
     /* create thread */
     for (i = 1; i < n_thread; i++)
@@ -145,21 +153,22 @@ int main(int argc, char **argv)
         {
             end_line = ysize - 1;
         }
-        
-        total_line[i] = end_line - start_line + 1;
+        printf("creating thread(%d)\n", i);
         offset_line[i] = line;
-        if (pthread_create(&thread[i], NULL, apply_filter, (void *)&send_data)!=0)
+        if (pthread_create(&thread[i], NULL, apply_filter, (void *)&send_data) != 0)
         {
             printf("Error happen while creating thread(%d)\n", i + 1);
         }
     }
+    printf("finish creating thread\n");
 
     /* apply filter (main thread)*/
-    blurfilter(xsize, remain + chunk, copy, src, radius, w, 0, remain+chunk+radius);
+    blurfilter(xsize, remain + chunk, copy, src, radius, w, 0, ysize);
 
     /* wait until thread finish */
     for (i = 1; i < n_thread; i++)
     {
+        printf("end thread(%d)\n", i);
         pthread_join(thread[i], NULL);
     }
 
@@ -173,9 +182,6 @@ int main(int argc, char **argv)
 
     if (write_ppm(argv[3], xsize, ysize, (char *)src) != 0)
         exit(1);
-
-    /* MPI finalize */
-    MPI_Finalize();
 
     return (0);
 }

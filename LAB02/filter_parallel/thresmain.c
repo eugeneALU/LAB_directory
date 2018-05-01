@@ -105,7 +105,7 @@ int main(int argc, char **argv)
     {
 	/* how to send data in for loop -- since here offset will be modify when I pass to the thread and cause wrong answer */
         //send_data.offset = malloc(sizeof(int));
-	//*send_data.offset = remain + chunk * i;
+	    //send_data.offset = remain + chunk * i;
         if (pthread_create(&thread[i], NULL, apply_filter, (void *)&send_data)!=0)
         {
             printf("Error happen while creating thread(%d)\n", i + 1);

@@ -1,4 +1,5 @@
 #include "thresfilter.h"
+#include "create_datatype.h"
 #define uint unsigned int
 
 void thresfilter(const int nump, pixel *src, const int mean)

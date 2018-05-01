@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include "blurfilter.h"
 #include "ppmio.h"
+#include "create_datatype.h"
 
 pixel *pix(pixel *image, const int xx, const int yy, const int xsize)
 {
@@ -26,7 +27,7 @@ void blurfilter(const int xsize, const int ysize, pixel *src, const int radius, 
 {
   int x, y, x2, y2, wi;
   double r, g, b, n, wc;
-  pixel dst[MAX_PIXELS];
+  static pixel dst[MAX_PIXELS];
 
   for (y = offset_line; y <  ysize + offset_line; y++)
   {

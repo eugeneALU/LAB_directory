@@ -1,3 +1,5 @@
+#Makefile for LAB03
+
 main: 
 	gcc -o parallel main.c -fopenmp
 sequence: 

@@ -30,7 +30,7 @@ int main()
 
     for (r = 1; r <= MAXITER; r++)
     {
-        #pragma omp parallel private(tmp_error) shared(error,T,tmp1)
+        #pragma omp parallel private(i) shared(tmp1)
         {
             /* copy first line */
             #pragma omp for //ordered
@@ -41,7 +41,7 @@ int main()
                 
             }
         }
-            //#pragma omp barrier --> without this still work (WHY?) this should be here
+        //#pragma omp barrier --> without this still work (WHY?) this should be here
         #pragma omp parallel private(tmp_error,tmp2) firstprivate(tmp1) shared(error,T)
         {
             //#pragma omp single

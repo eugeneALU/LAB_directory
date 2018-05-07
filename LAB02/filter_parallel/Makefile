@@ -1,4 +1,4 @@
-# Malefile to LAB02
+# Malefile for LAB02
 # compile with pthread
 
 CC = gcc

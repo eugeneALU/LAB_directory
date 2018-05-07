@@ -1,3 +1,5 @@
+#Makefile for Sequence code
+
 CC = gcc
 FLAGS = -lrt
 

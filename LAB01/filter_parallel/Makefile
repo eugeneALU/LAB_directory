@@ -1,3 +1,5 @@
+# Malefile for LAB01
+
 CC = mpicc -Nmpi
 FLAGS = -lrt
 

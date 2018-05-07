@@ -66,7 +66,6 @@ int main(int argc, char **argv)
     get_gauss_weights(radius, w);
 
     /* parallel take place */
-
     int chunk = 0;
     int remain = 0;
 
